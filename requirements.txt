@@ -1,0 +1,24 @@
+# requirements.txt
+
+# Core framework for web app
+streamlit
+
+# Data manipulation and analysis
+pandas
+numpy
+pandas-ta
+
+# Vietnam stock market data
+vnstock
+
+# Google Generative AI
+google-generativeai
+
+# Plotting and visualization
+plotly
+matplotlib
+seaborn
+
+# Portfolio optimization
+cvxpy
+xlsxwriter
