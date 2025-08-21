@@ -1,10 +1,2 @@
-# goldenkey_project/utils/__init__.py
-from .visualization import plot_stock_chart, plot_efficient_frontier, plot_portfolio_pie
-from .helpers import validate_symbols
-
-__all__ = [
-    'plot_stock_chart',
-    'plot_efficient_frontier',
-    'plot_portfolio_pie',
-    'validate_symbols'
-]
+# This file should be empty.
+# It marks the 'utils' directory as a Python package.

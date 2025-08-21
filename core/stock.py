@@ -100,3 +100,17 @@ class Stock:
         except Exception as e:
             print(f"Lỗi khi truy xuất {report_type} cho {self.symbol}: {e}")
             return pd.DataFrame()
+            
+    def get_related_news(self, page_size: int = 10) -> pd.DataFrame:
+        """
+        Lấy các tin tức gần nhất liên quan đến cổ phiếu.
+        """
+        try:
+            # Chức năng này của vnstock có thể yêu cầu phiên bản mới
+            news_df = vnstock.stock_news(symbol=self.symbol, page_num=1, page_size=page_size)
+            if not news_df.empty:
+                return news_df[['title', 'source', 'url']].head(5) # Lấy 5 tin mới nhất
+            return pd.DataFrame()
+        except Exception as e:
+            print(f"Lỗi khi lấy tin tức cho {self.symbol}: {e}")
+            return pd.DataFrame()

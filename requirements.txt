@@ -18,6 +18,7 @@ google-generativeai
 plotly
 matplotlib
 seaborn
+tabulate
 
 # Portfolio optimization
 cvxpy

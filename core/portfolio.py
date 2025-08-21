@@ -1,7 +1,6 @@
 # goldenkey_project/core/portfolio.py
 import pandas as pd
 import numpy as np
-import cvxpy as cp
 import vnstock
 from datetime import datetime, timedelta
 from config import VN_STOCK_SOURCE
@@ -46,70 +45,88 @@ class Portfolio:
     def calculate_stats(self):
         """Tính toán lợi suất hàng ngày và ma trận hiệp phương sai."""
         self.returns = self.adj_close.pct_change().dropna()
-        # Lấy ma trận hiệp phương sai của các tài sản (không bao gồm benchmark)
         asset_returns = self.returns[self.symbols]
         self.cov_matrix = asset_returns.cov() * 252 # Annualized
 
-    def run_monte_carlo(self, iterations: int = 10000, risk_free_rate: float = 0.04) -> pd.DataFrame:
-        """Thực hiện mô phỏng Monte Carlo để tìm đường biên hiệu quả."""
+    def run_monte_carlo(self, iterations: int = 10000, risk_free_rate: float = 0.04, min_weight: float = 0.10, max_weight: float = 0.60) -> pd.DataFrame:
+        """
+        Thực hiện mô phỏng Monte Carlo với các ràng buộc về tỷ trọng cho phần danh mục cổ phiếu.
+
+        Args:
+            iterations (int): Số lượng danh mục hợp lệ cần tìm.
+            risk_free_rate (float): Lãi suất phi rủi ro.
+            min_weight (float): Tỷ trọng tối thiểu cho mỗi cổ phiếu.
+            max_weight (float): Tỷ trọng tối đa cho mỗi cổ phiếu.
+
+        Returns:
+            pd.DataFrame: DataFrame chứa kết quả các danh mục hợp lệ.
+        """
         results = []
         num_assets = len(self.symbols)
         mean_returns = self.returns[self.symbols].mean() * 252 # Annualized
         
-        for i in range(iterations):
+        # Giới hạn số lần thử để tránh vòng lặp vô tận nếu ràng buộc quá chặt
+        # Ví dụ: nếu cần 10,000 danh mục, thử tối đa 2,000,000 lần
+        attempt_limit = iterations * 200 
+        attempts = 0
+
+        # Lặp cho đến khi tìm đủ số danh mục hợp lệ hoặc hết số lần thử
+        while len(results) < iterations and attempts < attempt_limit:
+            attempts += 1
+            
+            # Tạo tỷ trọng ngẫu nhiên
             weights = np.random.random(num_assets)
             weights /= np.sum(weights)
             
-            p_return = np.sum(mean_returns * weights)
-            p_volatility = np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix, weights)))
-            sharpe_ratio = (p_return - risk_free_rate) / p_volatility
-            
-            results.append([p_return, p_volatility, sharpe_ratio] + list(weights))
+            # Kiểm tra xem tất cả các tỷ trọng có nằm trong khoảng cho phép không
+            if np.all((weights >= min_weight) & (weights <= max_weight)):
+                # Nếu hợp lệ, tính toán và lưu kết quả
+                p_return = np.sum(mean_returns * weights)
+                p_volatility = np.sqrt(np.dot(weights.T, np.dot(self.cov_matrix, weights)))
+                sharpe_ratio = (p_return - risk_free_rate) / p_volatility
+                
+                results.append([p_return, p_volatility, sharpe_ratio] + list(weights))
         
+        # In cảnh báo nếu không tìm đủ danh mục
+        if len(results) < iterations:
+            print(f"Cảnh báo: Đã đạt đến giới hạn {attempt_limit} lần thử nhưng chỉ tìm thấy {len(results)}/{iterations} danh mục hợp lệ. Ràng buộc có thể quá chặt.")
+
         columns = ['return', 'volatility', 'sharpe'] + self.symbols
         return pd.DataFrame(results, columns=columns)
 
-    def optimize_portfolio(self, target_return: float, risk_free_rate: float, cash_weight: float) -> (np.ndarray, str):
+    def get_optimal_portfolios_from_mc(self, mc_results: pd.DataFrame) -> (pd.Series, pd.Series):
         """
-        Tối ưu hóa danh mục để tối thiểu rủi ro cho một mức lợi nhuận mục tiêu,
-        có tính đến tỷ trọng tiền mặt.
+        Lấy ra danh mục có tỷ lệ Sharpe tối đa và lợi nhuận tối đa từ kết quả Monte Carlo.
         """
-        # Xử lý trường hợp đặc biệt: 100% tiền mặt
-        if cash_weight >= 1.0:
-            return np.zeros(len(self.symbols)), "OPTIMAL" # Trả về 0 cho tất cả các cổ phiếu
-
-        num_assets = len(self.symbols)
-        weights = cp.Variable(num_assets)
-        mean_returns = self.returns[self.symbols].mean() * 252
-
-        # 1. Điều chỉnh lợi nhuận mục tiêu cho phần danh mục rủi ro (cổ phiếu)
-        # Công thức: R_cổ_phiếu = (R_tổng - w_tiền_mặt * R_phi_rủi_ro) / (1 - w_tiền_mặt)
-        if (1 - cash_weight) == 0: # Tránh lỗi chia cho 0
-             adjusted_target_return = 0
-        else:
-             adjusted_target_return = (target_return - cash_weight * risk_free_rate) / (1 - cash_weight)
-
-        portfolio_return = mean_returns.values @ weights
-        portfolio_risk = cp.quad_form(weights, self.cov_matrix)
-        
-        objective = cp.Minimize(portfolio_risk)
-        
-        # 2. Sửa đổi các ràng buộc
-        constraints = [
-            # Tổng trọng số các cổ phiếu bằng phần còn lại sau khi trừ đi tiền mặt
-            cp.sum(weights) == 1 - cash_weight,
+        if mc_results.empty:
+            return pd.Series(), pd.Series()
             
-            # Lợi nhuận của phần cổ phiếu phải đạt mức mục tiêu đã điều chỉnh
-            portfolio_return >= adjusted_target_return,
-            
-            # Không bán khống
-            weights >= 0
-        ]
+        max_sharpe_portfolio = mc_results.loc[mc_results['sharpe'].idxmax()]
+        max_return_portfolio = mc_results.loc[mc_results['return'].idxmax()]
         
-        problem = cp.Problem(objective, constraints)
-        problem.solve()
+        return max_sharpe_portfolio, max_return_portfolio
+
+    def calculate_cumulative_performance(self, stock_weights: np.ndarray, cash_weight: float, risk_free_rate: float) -> pd.DataFrame:
+        """
+        Tính toán hiệu suất tích lũy của danh mục và so sánh với benchmark.
+        """
+        one_year_ago = self.returns.index.max() - pd.DateOffset(years=1)
+        recent_returns = self.returns[self.returns.index >= one_year_ago]
+
+        if recent_returns.empty:
+            return pd.DataFrame()
+
+        asset_returns = recent_returns[self.symbols]
+        benchmark_returns = recent_returns[self.benchmark]
         
-        if problem.status in [cp.OPTIMAL, cp.OPTIMAL_INACCURATE]:
-            return weights.value, problem.status
-        else:
-            return None, problem.status
+        portfolio_stock_returns = asset_returns.dot(stock_weights)
+        daily_risk_free_rate = (1 + risk_free_rate)**(1/252) - 1
+        stock_portion_weight = 1 - cash_weight
+        portfolio_total_returns = (portfolio_stock_returns * stock_portion_weight) + (daily_risk_free_rate * cash_weight)
+
+        performance_df = pd.DataFrame({
+            'Danh mục': (1 + portfolio_total_returns).cumprod(),
+            f'{self.benchmark}': (1 + benchmark_returns).cumprod()
+        })
+        
+        return performance_df
