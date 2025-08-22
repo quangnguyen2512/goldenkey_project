@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Goldenkey Chart</title>
+    <script>
+        __LIBRARY_SCRIPT__
+    </script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #1E1E1E; }
+        .tv-chart-container { width: 100%; height: 100vh; position: relative; }
+        .error-message { color: red; padding: 20px; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div id="tv_chart_container" class="tv-chart-container"></div>
+
+    <script type="text/javascript">
+        function drawGoldenkeyChart() {
+            const chartContainer = document.getElementById('tv_chart_container');
+            
+            try {
+                if (typeof LightweightCharts === 'undefined') {
+                    throw new Error("Thư viện LightweightCharts chưa sẵn sàng.");
+                }
+
+                const chart = LightweightCharts.createChart(chartContainer, {
+                    layout: { background: { type: 'solid', color: '#131722' }, textColor: 'rgba(255, 255, 255, 0.9)' },
+                    grid: { vertLines: { color: 'rgba(197, 203, 206, 0.2)' }, horzLines: { color: 'rgba(197, 203, 206, 0.2)' } },
+                    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+                    rightPriceScale: { borderColor: 'rgba(197, 203, 206, 0.8)' },
+                    timeScale: { borderColor: 'rgba(197, 203, 206, 0.8)', timeVisible: true, secondsVisible: false },
+                });
+
+                // --- SỬA LỖI THEO API MỚI ---
+                // Cú pháp cũ: chart.addCandlestickSeries()
+                // Cú pháp mới: chart.addCandlestickSeries() vẫn được hỗ trợ trong bản standalone
+                // Vấn đề gốc rễ vẫn là việc khởi tạo chart. Quay lại phiên bản ổn định nhất.
+                
+                const candleSeries = chart.addCandlestickSeries({
+                    upColor: '#26a69a', downColor: '#ef5350', borderDownColor: '#ef5350', borderUpColor: '#26a69a',
+                    wickDownColor: '#ef5350', wickUpColor: '#26a69a',
+                });
+                candleSeries.setData(candlestickData);
+
+                const volumeSeries = chart.addHistogramSeries({
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: '', // Đặt trên một thang đo riêng
+                    scaleMargins: { top: 0.8, bottom: 0 },
+                });
+                volumeSeries.setData(volumeData);
+
+                if (ma20Data.length > 0) chart.addLineSeries({ color: '#2962FF', lineWidth: 1.5 }).setData(ma20Data);
+                if (ma50Data.length > 0) chart.addLineSeries({ color: '#FF6D00', lineWidth: 1.5 }).setData(ma50Data);
+                if (ma100Data.length > 0) chart.addLineSeries({ color: '#E91E63', lineWidth: 1.5 }).setData(ma100Data);
+
+                if (macdHistData.length > 0) {
+                    const macdPane = chart.addHistogramSeries({ priceScaleId: 'macd', pane: 1, scaleMargins: { top: 0.8, bottom: 0.1 } });
+                    macdPane.setData(macdHistData);
+                    chart.addLineSeries({ priceScaleId: 'macd', pane: 1, color: '#2962FF', lineWidth: 1.5 }).setData(macdLineData);
+                    chart.addLineSeries({ priceScaleId: 'macd', pane: 1, color: '#FF6D00', lineWidth: 1.5 }).setData(macdSignalData);
+                }
+
+                if (rsiData.length > 0) {
+                    const rsiPane = chart.addLineSeries({ priceScaleId: 'rsi', pane: 2, color: 'purple', lineWidth: 1.5, scaleMargins: { top: 0.1, bottom: 0.1 } });
+                    rsiPane.setData(rsiData);
+                    rsiPane.createPriceLine({ price: 70, color: 'red', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed });
+                    rsiPane.createPriceLine({ price: 30, color: 'green', lineWidth: 1, lineStyle: LightweightCharts.LineStyle.Dashed });
+                }
+
+                chart.timeScale().fitContent();
+                new ResizeObserver(entries => {
+                    const newRect = entries[0].contentRect;
+                    chart.applyOptions({ width: newRect.width, height: newRect.height });
+                }).observe(chartContainer);
+
+            } catch (e) {
+                chartContainer.innerHTML = `<div class="error-message"><strong>Lỗi JavaScript:</strong><br>${e.message}</div>`;
+                console.error(e);
+            }
+        }
+    </script>
+</body>
+</html>
